@@ -5,16 +5,16 @@
 }
 
 :root {
-  --bg:        #1c1f20;
-  --panel:     #1c1f20;
-  --panel2:    #1c1f20;
-  --border:    rgba(128,128,128,0.2);
+  --bg:        #242424;
+  --panel:     #2e3436;
+  --panel2:    #353535;
+  --border:    rgba(255,255,255,0.1);
   --accent:    #3583e4;
   --accent-hv: #5294e2;
   --danger:    #e01b24;
   --danger-hv: #ec5d5d;
   --text:      #eeeeec;
-  --text-dim:  #aaaaaa;
+  --text-dim:  #9a9996;
   --green:     #4caf50;
   --orange:    #ff9800;
   --sep:       rgba(128,128,128,0.2);
@@ -219,6 +219,7 @@ html, body {
   flex: 1;
   overflow: hidden;
   gap: 0;
+  background: var(--bg);
 }
 
 .pane-left {
@@ -228,6 +229,9 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 6px;
+  margin: 4px;
+  border: 1px solid var(--border);
 }
 
 .pane-left-inner {
@@ -270,16 +274,34 @@ html, body {
   flex-shrink: 0;
 }
 
-button, .btn {
+.bin-btn {
   font-family: var(--font);
   font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 4px;
+  padding: 5px 14px;
+  border-radius: 5px;
   border: 1px solid var(--border);
   cursor: pointer;
   background: var(--panel2);
   color: var(--text);
   transition: background 0.12s;
+  font-weight: 500;
+}
+
+.bin-btn:hover {
+  background: #3a3f41;
+}
+
+button, .btn {
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: var(--panel2);
+  color: var(--text);
+  transition: background 0.12s;
+  font-weight: 500;
 }
 button:hover, .btn:hover { background: #3a3f41; }
 
@@ -309,6 +331,9 @@ button.print-btn {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  border-radius: 6px;
+  margin: 4px;
+  border: 1px solid var(--border);
 }
 
 .preview-header {
@@ -323,21 +348,22 @@ button.print-btn {
   flex-shrink: 0;
 }
 
-.preview-area {
+.preview-area { 
   flex: 1;
   overflow: auto;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 20px;
-  background: #888;
+  padding: 30px;
+  background: #1e1e1e;
 }
 
 .preview-area img {
   display: block;
   max-width: 100%;
-  background: white;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+  height: auto;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+  border-bottom: 3px dashed rgba(0,0,0,0.15);
 }
 
 .preview-placeholder {

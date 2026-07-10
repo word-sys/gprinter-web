@@ -266,6 +266,51 @@ const App = (() => {
     openModal('modal-receipt-text');
   }
 
+  function addReceiptImage() {
+    $('receipt-img-upload').value = '';
+    $('receipt-img-upload').click();
+  }
+
+  function onReceiptImageSelected(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+          state.receiptItems.push({
+              type: 'image',
+              image_data: ev.target.result, // Base64 string
+              align: 'center',
+              keep_aspect: true
+          });
+          renderReceiptTable();
+      };
+      reader.readAsDataURL(file);
+  }
+
+  async function printPdfAll() {
+      if (!state.pdfFile) { toast('No PDF selected', 'err'); return; }
+      const conn = getConn();
+      const ps = getPrintSettings();
+      
+      const fd = new FormData();
+      fd.append('file', state.pdfFile);
+      fd.append('page', 'all'); // Override page with 'all'
+      fd.append('target_width', ps.target_width);
+      fd.append('mode', conn.mode);
+      fd.append('ip', conn.ip);
+      fd.append('print_port', conn.print_port);
+      fd.append('status_port', conn.status_port);
+      fd.append('path', conn.path);
+      
+      toast('Processing PDF...', 'ok');
+      const r = await api('/api/print/pdf', { method: 'POST', body: fd });
+      if (r && r.success) {
+        toast('Sent entire PDF to printer ✓', 'ok');
+      } else {
+        toast('Print failed: ' + (r && r.error ? r.error : 'Unknown error'), 'err', 5000);
+      }
+  }
+
   function editReceiptItem() {
     const i = state.selectedReceipt;
     if (i < 0 || i >= state.receiptItems.length) return;
@@ -283,6 +328,11 @@ const App = (() => {
     } else if (it.type === 'feed') {
       $('rf-lines').value = it.lines || 3;
       openModal('modal-receipt-feed');
+    } else if (it.type === 'image') {
+      $('ri-align').value = it.align || 'center';
+      $('ri-width').value = it.width || '';
+      $('ri-invert').checked = !!it.invert;
+      openModal('modal-receipt-image');
     }
   }
 
@@ -303,6 +353,37 @@ const App = (() => {
     }
     closeModal('modal-receipt-text');
     renderReceiptTable();
+  }
+
+  function saveReceiptImage() {
+    const i = state.editingReceiptIdx;
+    if (i !== null) {
+      state.receiptItems[i].align = $('ri-align').value;
+      state.receiptItems[i].width = parseInt($('ri-width').value) || null;
+      state.receiptItems[i].invert = $('ri-invert').checked;
+      renderReceiptTable();
+    }
+    closeModal('modal-receipt-image');
+  }
+
+  function addLabelImage() {
+    $('label-img-upload').value = '';
+    $('label-img-upload').click();
+  }
+
+  function onLabelImageSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      state.labelElements.push({
+        type: 'image',
+        image_data: ev.target.result,
+        x: 40, y: 40, width: 200, invert: false
+      });
+      renderLabelTable();
+    };
+    reader.readAsDataURL(file);
   }
 
   function saveReceiptFeed() {
@@ -440,6 +521,12 @@ const App = (() => {
       $('lq-cell').value    = el.cell_width || 4;
       $('lq-ecc').value     = el.ecc || 'M';
       openModal('modal-label-qr');
+    } else if (el.type === 'image') {
+      $('li-x').value = el.x || 0;
+      $('li-y').value = el.y || 0;
+      $('li-width').value = el.width || 200;
+      $('li-invert').checked = !!el.invert;
+      openModal('modal-label-image');
     }
   }
 
@@ -455,6 +542,18 @@ const App = (() => {
       my:       parseInt($('lt-my').value) || 1
     };
     _saveLabelEl(el, 'modal-label-text');
+  }
+
+  function saveLabelImage() {
+    const i = state.editingLabelIdx;
+    if (i !== null) {
+      state.labelElements[i].x = parseInt($('li-x').value) || 0;
+      state.labelElements[i].y = parseInt($('li-y').value) || 0;
+      state.labelElements[i].width = parseInt($('li-width').value) || 200;
+      state.labelElements[i].invert = $('li-invert').checked;
+      renderLabelTable();
+    }
+    closeModal('modal-label-image');
   }
 
   function saveLabelBarcode() {
@@ -576,6 +675,102 @@ const App = (() => {
     toast(`Exported ${a.download}`, 'ok');
   }
 
+  function triggerReceiptBinImport() {
+    document.getElementById('bin-receipt-import').click();
+}
+
+async function handleReceiptBinImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const response = await fetch('/api/receipt/import', { method: 'POST', body: fd });
+        const res = await response.json();
+        if (res && res.success) {
+            state.receiptItems = res.items;
+            renderReceiptTable();
+            refreshReceiptPreview();
+        }
+    } catch (err) {}
+    event.target.value = '';
+}
+
+async function exportReceiptBin() {
+    const ps = getPrintSettings();
+    try {
+        const response = await fetch('/api/receipt/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items: state.receiptItems,
+                target_width: parseInt(ps.target_width),
+                chars_per_line: parseInt(ps.chars_per_line),
+                left_margin: parseInt(ps.left_margin)
+            })
+        });
+        if (!response.ok) return;
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'receipt.bin';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (err) {}
+}
+
+function triggerLabelBinImport() {
+    document.getElementById('bin-label-import').click();
+}
+
+async function handleLabelBinImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const response = await fetch('/api/label/import', { method: 'POST', body: fd });
+        const res = await response.json();
+        if (res && res.success) {
+            state.labelElements = res.elements;
+            if (document.getElementById('label-width')) document.getElementById('label-width').value = res.width;
+            if (document.getElementById('label-height')) document.getElementById('label-height').value = res.height;
+            if (document.getElementById('label-gap')) document.getElementById('label-gap').value = res.gap;
+            renderLabelTable();
+            if (typeof refreshLabelPreview === 'function') refreshLabelPreview();
+        }
+    } catch (err) {}
+    event.target.value = '';
+}
+
+async function exportLabelBin() {
+    try {
+        const response = await fetch('/api/label/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                width: parseFloat(document.getElementById('label-width')?.value || 60),
+                height: parseFloat(document.getElementById('label-height')?.value || 40),
+                gap: parseFloat(document.getElementById('label-gap')?.value || 3),
+                elements: state.labelElements
+            })
+        });
+        if (!response.ok) return;
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'label.bin';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (err) {}
+}
+
   async function onPdfSelected() {
     const input = $('pdf-file-input');
     if (!input.files.length) return;
@@ -691,8 +886,7 @@ const App = (() => {
     saveReceiptText, saveReceiptFeed, refreshReceiptPreview,
     addLabelEl, editLabelEl, deleteLabelEl, moveLabelEl,
     saveLabelText, saveLabelBarcode, saveLabelQr, refreshLabelPreview,
-    importBin, exportBin, onImportFile,
-    onPdfSelected,
+    onPdfSelected,triggerReceiptBinImport, handleReceiptBinImport, exportReceiptBin, triggerLabelBinImport, handleLabelBinImport, exportLabelBin, saveLabelImage,
     print
   };
 })();

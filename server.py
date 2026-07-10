@@ -11,6 +11,7 @@ import tspl_gen
 
 import base64
 import io
+from PIL import Image as PILImage, ImageDraw, ImageFont
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
 
@@ -65,9 +66,23 @@ def printer_status():
     status = printer_comm.query_ethernet_status(ip, port)
     return jsonify(status)
 
+def _process_incoming_items(items):
+    for item in items:
+        if item.get('type') == 'image' and 'image_data' in item:
+            try:
+                b64_str = item['image_data']
+                if ',' in b64_str:
+                    b64_str = b64_str.split(',')[1]
+                img_bytes = base64.b64decode(b64_str)
+                item['image'] = PILImage.open(io.BytesIO(img_bytes))
+            except Exception as e:
+                print(f"Error decoding image: {e}")
+    return items
+
 
 def _render_escpos_preview(items, target_width, chars_per_line, left_margin):
-    from PIL import Image, ImageDraw, ImageFont
+    # base64 conversion
+    items = _process_incoming_items(items)
     raw = escpos_gen.compile_receipt(items, target_width, chars_per_line, left_margin)
     parsed = escpos_gen.parse_receipt(raw)
 
@@ -97,7 +112,7 @@ def _render_escpos_preview(items, target_width, chars_per_line, left_margin):
                 text = text + ' ' * max(1, spaces) + right_text
             lines.append(('text', text, bold, dw, dh, align))
 
-    total_h = 20
+    total_h = 0
     for line in lines:
         kind = line[0]
         if kind == 'image' and len(line) > 1 and line[1]:
@@ -108,7 +123,11 @@ def _render_escpos_preview(items, target_width, chars_per_line, left_margin):
             dh = line[4] if len(line) > 4 else False
             total_h += (char_h * 2) if dh else char_h
 
-    canvas = Image.new('RGB', (line_w, max(total_h, 200)), color=(255, 255, 255))
+    pad = 24
+    paper_bg = (254, 251, 244) # GTK _PAPER
+    text_color = (20, 20, 25)  # GTK _TEXT
+
+    canvas = PILImage.new('RGB', (line_w + pad * 2, max(total_h, 60) + pad * 2), color=paper_bg)
     draw = ImageDraw.Draw(canvas)
 
     try:
@@ -118,19 +137,19 @@ def _render_escpos_preview(items, target_width, chars_per_line, left_margin):
     except Exception:
         font_normal = font_bold = font_large = ImageFont.load_default()
 
-    y = 10
+    y = pad
     for line in lines:
         kind = line[0]
         if kind == 'sep':
-            draw.line([(left_margin, y + char_h // 2), (line_w - left_margin, y + char_h // 2)],
-                      fill=(0, 0, 0), width=1)
+            draw.line([(left_margin + pad, y + char_h // 2), (line_w - left_margin + pad, y + char_h // 2)],
+                      fill=text_color, width=1)
             y += char_h
         elif kind == 'blank':
             y += char_h
         elif kind == 'image':
             img_obj = line[1] if len(line) > 1 else None
             if img_obj:
-                canvas.paste(img_obj.convert('RGB'), (left_margin, y))
+                canvas.paste(img_obj.convert('RGB'), (left_margin + pad, y))
                 y += img_obj.height + 4
         else:
             text  = line[1] if len(line) > 1 else ''
@@ -139,18 +158,21 @@ def _render_escpos_preview(items, target_width, chars_per_line, left_margin):
             dh    = line[4] if len(line) > 4 else False
             align = line[5] if len(line) > 5 else 'left'
             font  = font_large if (dw or dh) else (font_bold if bold else font_normal)
+            
             try:
                 bbox = draw.textbbox((0, 0), text, font=font)
                 tw = bbox[2] - bbox[0]
             except Exception:
                 tw = len(text) * 8
+                
             if align == 'center':
                 tx = max(left_margin, (line_w - tw) // 2)
             elif align == 'right':
                 tx = max(left_margin, line_w - tw - left_margin)
             else:
                 tx = left_margin
-            draw.text((tx, y), text, fill=(0, 0, 0), font=font)
+                
+            draw.text((tx + pad, y), text, fill=text_color, font=font)
             y += (char_h * 2) if dh else char_h
 
     buf = io.BytesIO()
@@ -182,6 +204,9 @@ def print_escpos():
     left_margin    = int(data.get('left_margin', 0))
     autocut        = bool(data.get('autocut', True))
     mode           = data.get('mode', 'ethernet')
+    
+    items = _process_incoming_items(items)
+    
     try:
         raw = escpos_gen.compile_receipt(items, target_width, chars_per_line, left_margin)
         if autocut:
@@ -232,6 +257,119 @@ def import_escpos():
         return jsonify({'success': True, 'items': clean})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/receipt/export', methods=['POST'])
+def export_receipt_bin():
+    try:
+        data = request.get_json(force=True)
+        items = data.get('items', [])
+        target_width = int(data.get('target_width', 576))
+        chars_per_line = int(data.get('chars_per_line', 48))
+        left_margin = int(data.get('left_margin', 0))
+        
+        items = _process_incoming_items(items)
+        
+        raw = escpos_gen.compile_receipt(items, target_width, chars_per_line, left_margin)
+        if not raw.endswith(b'\x1D\x56\x42\x00'):
+            raw += b'\x1D\x56\x42\x00' # Cut
+            
+        return send_file(
+            io.BytesIO(raw),
+            mimetype='application/octet-stream',
+            as_attachment=True,
+            download_name='receipt.bin'
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/receipt/import', methods=['POST'])
+def import_receipt_bin():
+    """Base64."""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+    try:
+        file_bytes = request.files['file'].read()
+        parsed_items = escpos_gen.parse_receipt(file_bytes)
+        
+        serializable_items = []
+        for item in parsed_items:
+            new_item = {k: v for k, v in item.items() if k != 'image'}
+            
+            if item.get('type') == 'image' and 'image' in item:
+                img = item['image']
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                b64_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+                new_item['image_data'] = f"data:image/png;base64,{b64_str}"
+                
+            serializable_items.append(new_item)
+            
+        return jsonify({'success': True, 'items': serializable_items})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/label/export', methods=['POST'])
+def export_label_bin():
+    """.bin"""
+    try:
+        data = request.get_json(force=True)
+        width = float(data.get('width', 60.0))
+        height = float(data.get('height', 40.0))
+        gap = float(data.get('gap', 3.0))
+        elements = data.get('elements', [])
+        
+        # Hydrate embedded labels back to PIL instances
+        for el in elements:
+            if el.get('type') == 'image' and 'image_data' in el:
+                b64_str = el['image_data']
+                if ',' in b64_str:
+                    b64_str = b64_str.split(',')[1]
+                img_bytes = base64.b64decode(b64_str)
+                el['image'] = PILImage.open(io.BytesIO(img_bytes))
+                
+        raw = tspl_gen.compile_label(width, height, gap, elements)
+        return send_file(
+            io.BytesIO(raw),
+            mimetype='application/octet-stream',
+            as_attachment=True,
+            download_name='label.bin'
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/label/import', methods=['POST'])
+def import_label_bin():
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+    try:
+        file_bytes = request.files['file'].read()
+        width_mm, height_mm, gap_mm, elements = tspl_gen.parse_label(file_bytes)
+        
+        serializable_elements = []
+        for el in elements:
+            new_el = {k: v for k, v in el.items() if k != 'image'}
+            
+            if el.get('type') == 'image' and 'image' in el:
+                img = el['image']
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                b64_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+                new_el['image_data'] = f"data:image/png;base64,{b64_str}"
+                
+            serializable_elements.append(new_el)
+            
+        return jsonify({
+            'success': True, 
+            'width': width_mm, 
+            'height': height_mm, 
+            'gap': gap_mm, 
+            'elements': serializable_elements
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 def _render_tspl_preview(width_mm, height_mm, gap_mm, elements):
@@ -323,12 +461,24 @@ def print_tspl():
     data    = request.get_json(force=True)
     autocut = bool(data.get('autocut', False))
     mode    = data.get('mode', 'ethernet')
+    elements = data.get('elements', [])
+    
+    for el in elements:
+        if el.get('type') == 'image' and 'image_data' in el:
+            b64_str = el['image_data']
+            if ',' in b64_str:
+                b64_str = b64_str.split(',')[1]
+            try:
+                el['image'] = PILImage.open(io.BytesIO(base64.b64decode(b64_str)))
+            except Exception:
+                pass
+                
     try:
         raw = tspl_gen.compile_label(
             float(data.get('width_mm', 50)),
             float(data.get('height_mm', 40)),
             float(data.get('gap_mm', 2)),
-            data.get('elements', [])
+            elements
         )
         if autocut:
             raw += b'CUT\r\n'
@@ -410,19 +560,30 @@ def preview_pdf():
 def print_pdf():
     if 'file' not in request.files:
         return jsonify({'success': False, 'error': 'No PDF uploaded'}), 400
-    page_num     = int(request.form.get('page', 0))
+        
+    page_req = request.form.get('page', '0')
     target_width = int(request.form.get('target_width', 576))
-    mode         = request.form.get('mode', 'ethernet')
+    mode = request.form.get('mode', 'ethernet')
+    
     try:
         import fitz
         from PIL import Image as PILImage
         pdf_bytes = request.files['file'].read()
-        doc       = fitz.open(stream=pdf_bytes, filetype='pdf')
-        page      = doc[min(page_num, len(doc) - 1)]
-        zoom      = target_width / page.rect.width
-        pix       = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), colorspace=fitz.csGRAY)
-        img       = PILImage.frombytes('L', (pix.width, pix.height), pix.samples).convert('1')
-        raw       = b'\x1B\x40' + escpos_gen.get_image_bytes(img, target_width) + b'\x1D\x56\x42\x00'
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+        
+        pages_to_print = range(len(doc)) if page_req == 'all' else [min(int(page_req), len(doc) - 1)]
+        raw_all = bytearray(b'\x1B\x40')
+        
+        for p in pages_to_print:
+            page = doc[p]
+            zoom = target_width / page.rect.width
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), colorspace=fitz.csGRAY)
+            img = PILImage.frombytes('L', (pix.width, pix.height), pix.samples).convert('1')
+            raw_all.extend(escpos_gen.get_image_bytes(img, target_width))
+            
+        raw_all.extend(b'\x1D\x56\x42\x00') # Cut
+        raw = bytes(raw_all)
+        
     except Exception as e:
         return jsonify({'success': False, 'error': f'PDF render error: {e}'})
 

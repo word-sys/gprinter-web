@@ -134,6 +134,7 @@
             </div>
             <div class="btn-bar">
               <button onclick="App.addReceiptItem('text')">+ Text</button>
+              <button onclick="App.addReceiptImage()">+ Image</button>
               <button onclick="App.addReceiptItem('separator')">+ Sep</button>
               <button onclick="App.addReceiptItem('feed')">+ Feed</button>
               <button onclick="App.editReceiptItem()">Edit</button>
@@ -142,12 +143,14 @@
             <div class="btn-bar">
               <button onclick="App.moveReceiptItem(-1)">Move Up</button>
               <button onclick="App.moveReceiptItem(1)">Move Down</button>
-              <button onclick="App.importBin('escpos')">Import .bin</button>
-              <button onclick="App.exportBin('escpos')">Export .bin</button>
+              <input type="file" id="bin-receipt-import" accept=".bin" style="display:none" onchange="App.handleReceiptBinImport(event)"/>
+              <input type="file" id="bin-label-import" accept=".bin" style="display:none" onchange="App.handleLabelBinImport(event)"/>
+              <button class="bin-btn" onclick="App.triggerReceiptBinImport()">Import .bin</button>
+              <button class="bin-btn" onclick="App.exportReceiptBin()">Export .bin</button>
               <input type="file" id="import-escpos-file" accept=".bin" style="display:none" onchange="App.onImportFile('escpos')"/>
             </div>
             <div class="btn-bar">
-              <button class="primary" style="flex:1" onclick="App.print('escpos')">🖨 Print Receipt</button>
+              <button class="primary" style="flex:1" onclick="App.print('escpos')">Print Receipt</button>
             </div>
           </div>
           <div class="pane-right">
@@ -182,6 +185,8 @@
             </div>
             <div class="btn-bar">
               <button onclick="App.addLabelEl('text')">+ Text</button>
+              <button onclick="App.addLabelImage()">+ Image</button>
+              <input type="file" id="label-img-upload" accept="image/png, image/jpeg" style="display:none" onchange="App.onLabelImageSelected(event)"/>
               <button onclick="App.addLabelEl('barcode')">+ Barcode</button>
               <button onclick="App.addLabelEl('qrcode')">+ QR</button>
               <button onclick="App.editLabelEl()">Edit</button>
@@ -240,7 +245,9 @@
               </div>
             </div>
             <div class="btn-bar">
-              <button class="primary" style="flex:1" onclick="App.print('pdf')">🖨 Print PDF Page</button>
+              <button class="primary" style="flex:1" onclick="App.print('pdf')">Print PDF Page</button>
+              <button class="primary" style="flex:1; background: linear-gradient(to bottom, #4caf50, #2e7d32);" onclick="App.printPdfAll()">Print All Pages</button>
+              <input type="file" id="receipt-img-upload" accept="image/png, image/jpeg" style="display:none" onchange="App.onReceiptImageSelected(event)"/>
             </div>
           </div>
           <div class="pane-right">
@@ -299,6 +306,32 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-receipt-image">
+  <div class="modal">
+    <h3 id="modal-receipt-image-title">Edit Image</h3>
+    <div class="form-row">
+      <label>Align:</label>
+      <select id="ri-align">
+        <option value="left">Left</option>
+        <option value="center">Center</option>
+        <option value="right">Right</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Width (dots):</label>
+      <input type="number" id="ri-width" placeholder="Auto"/>
+    </div>
+    <div class="form-row">
+      <label>Style:</label>
+      <label class="checkbox-row"><input type="checkbox" id="ri-invert"/> Invert Colors</label>
+    </div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-receipt-image')">Cancel</button>
+      <button class="primary" onclick="App.saveReceiptImage()">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- Receipt Feed Modal -->
 <div class="modal-overlay" id="modal-receipt-feed">
   <div class="modal">
@@ -344,6 +377,23 @@
     <div class="modal-actions">
       <button onclick="App.closeModal('modal-label-text')">Cancel</button>
       <button class="primary" onclick="App.saveLabelText()">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-label-image">
+  <div class="modal">
+    <h3 id="modal-label-image-title">Edit Label Image</h3>
+    <div class="form-row"><label>X (dots):</label><input type="number" id="li-x"/></div>
+    <div class="form-row"><label>Y (dots):</label><input type="number" id="li-y"/></div>
+    <div class="form-row"><label>Width (dots):</label><input type="number" id="li-width"/></div>
+    <div class="form-row">
+      <label>Style:</label>
+      <label class="checkbox-row"><input type="checkbox" id="li-invert"/> Invert Colors</label>
+    </div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-label-image')">Cancel</button>
+      <button class="primary" onclick="App.saveLabelImage()">OK</button>
     </div>
   </div>
 </div>
