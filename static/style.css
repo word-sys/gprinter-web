@@ -6,9 +6,9 @@
 
 :root {
   --bg:        #1c1f20;
-  --panel:     #2e3436;
-  --panel2:    #252a2c;
-  --border:    rgba(128,128,128,0.25);
+  --panel:     #1c1f20;
+  --panel2:    #1c1f20;
+  --border:    rgba(128,128,128,0.2);
   --accent:    #3583e4;
   --accent-hv: #5294e2;
   --danger:    #e01b24;
