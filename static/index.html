@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GPrinter Web</title>
+  <meta name="description" content="Web-based USB and Ethernet printer interface for GPrinter devices"/>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ──────────────────────────────────── -->
+  <header id="header">
+    <span class="app-title">GPrinter Web</span>
+    <span class="app-sub">Ethernet &amp; USB Printing</span>
+    <div class="spacer"></div>
+    <span id="status-pill">Not connected</span>
+    <button class="primary print-btn" id="btn-print-header" onclick="App.printCurrent()">Print Current View</button>
+  </header>
+
+  <div id="body">
+
+    <!-- ── Sidebar ─────────────────────────────────── -->
+    <aside id="sidebar">
+
+      <!-- Connection Settings -->
+      <div>
+        <div class="sidebar-section-title">Connection Settings</div>
+
+        <div class="field-row">
+          <label>Mode:</label>
+          <select id="conn-mode" onchange="App.onModeChange()">
+            <option value="ethernet">Ethernet (LAN)</option>
+            <option value="usb">USB</option>
+          </select>
+        </div>
+
+        <!-- Ethernet fields -->
+        <div id="eth-fields">
+          <div class="field-row">
+            <label>IP Address:</label>
+            <input type="text" id="eth-ip" value="192.168.1.100" placeholder="192.168.1.100"/>
+          </div>
+          <div class="field-row">
+            <label>Print Port:</label>
+            <div class="spin-group">
+              <button onclick="App.spin('eth-print-port',-1)">−</button>
+              <input type="number" id="eth-print-port" value="9100" min="1" max="65535"/>
+              <button onclick="App.spin('eth-print-port',1)">+</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <label>Status Port:</label>
+            <div class="spin-group">
+              <button onclick="App.spin('eth-status-port',-1)">−</button>
+              <input type="number" id="eth-status-port" value="4000" min="1" max="65535"/>
+              <button onclick="App.spin('eth-status-port',1)">+</button>
+            </div>
+          </div>
+          <div class="field-row" style="gap:4px">
+            <button style="flex:1" onclick="App.scanLan()">Scan LAN</button>
+            <select id="lan-results" style="flex:1;font-size:11px" onchange="App.onLanSelect()">
+              <option value="">— Results —</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- USB fields -->
+        <div id="usb-fields" style="display:none">
+          <div class="field-row">
+            <label>Device:</label>
+            <select id="usb-device" style="flex:1"></select>
+          </div>
+          <button style="width:100%;margin-top:4px" onclick="App.refreshUsb()">Refresh USB</button>
+        </div>
+
+        <button style="width:100%;margin-top:6px" onclick="App.testConnection()">Test Connection</button>
+      </div>
+
+      <!-- Print Settings -->
+      <div>
+        <div class="sidebar-section-title">Print Settings</div>
+        <div class="field-row">
+          <label>Density/Width:</label>
+          <select id="print-width">
+            <option value="384">2 inch (384 dots)</option>
+            <option value="576" selected>3 inch (576 dots)</option>
+            <option value="832">4 inch (832 dots)</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label>Chars/Line:</label>
+          <div class="spin-group">
+            <button onclick="App.spin('chars-per-line',-1)">−</button>
+            <input type="number" id="chars-per-line" value="48" min="24" max="80"/>
+            <button onclick="App.spin('chars-per-line',1)">+</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label>Left Margin:</label>
+          <div class="spin-group">
+            <button onclick="App.spin('left-margin',-8)">−</button>
+            <input type="number" id="left-margin" value="0" min="0" max="256"/>
+            <button onclick="App.spin('left-margin',8)">+</button>
+          </div>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="autocut-chk" checked/>
+          Auto-Cut Paper after print
+        </label>
+      </div>
+
+    </aside>
+
+    <!-- ── Main ────────────────────────────────────── -->
+    <main id="main">
+      <!-- Tab bar -->
+      <div id="tab-bar">
+        <button class="tab-btn active" id="tab-btn-receipt" onclick="App.switchTab('receipt')">ESC/POS Receipt</button>
+        <button class="tab-btn" id="tab-btn-label" onclick="App.switchTab('label')">TSPL Label</button>
+        <button class="tab-btn" id="tab-btn-pdf" onclick="App.switchTab('pdf')">Quick PDF</button>
+      </div>
+
+      <!-- ── Receipt Tab ──────────────────────────── -->
+      <div class="tab-pane active" id="tab-receipt">
+        <div class="pane-split">
+          <div class="pane-left">
+            <div class="pane-left-inner">
+              <table class="item-list" id="receipt-table">
+                <thead><tr><th>Type</th><th>Details</th></tr></thead>
+                <tbody id="receipt-tbody"></tbody>
+              </table>
+            </div>
+            <div class="btn-bar">
+              <button onclick="App.addReceiptItem('text')">+ Text</button>
+              <button onclick="App.addReceiptItem('separator')">+ Sep</button>
+              <button onclick="App.addReceiptItem('feed')">+ Feed</button>
+              <button onclick="App.editReceiptItem()">Edit</button>
+              <button class="danger" onclick="App.deleteReceiptItem()">Delete</button>
+            </div>
+            <div class="btn-bar">
+              <button onclick="App.moveReceiptItem(-1)">Move Up</button>
+              <button onclick="App.moveReceiptItem(1)">Move Down</button>
+              <button onclick="App.importBin('escpos')">Import .bin</button>
+              <button onclick="App.exportBin('escpos')">Export .bin</button>
+              <input type="file" id="import-escpos-file" accept=".bin" style="display:none" onchange="App.onImportFile('escpos')"/>
+            </div>
+            <div class="btn-bar">
+              <button class="primary" style="flex:1" onclick="App.print('escpos')">🖨 Print Receipt</button>
+            </div>
+          </div>
+          <div class="pane-right">
+            <div class="preview-header">
+              <span>Receipt Preview</span>
+              <span id="receipt-preview-info" style="font-size:11px;color:var(--text-dim)"></span>
+            </div>
+            <div class="preview-area" id="receipt-preview-area">
+              <span class="preview-placeholder">Add items to see preview</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Label Tab ────────────────────────────── -->
+      <div class="tab-pane" id="tab-label">
+        <div class="pane-split">
+          <div class="pane-left">
+            <div class="label-settings">
+              <label>W mm:</label>
+              <input type="number" id="lbl-w" value="50" min="10" max="200" step="0.5" oninput="App.refreshLabelPreview()"/>
+              <label>H mm:</label>
+              <input type="number" id="lbl-h" value="40" min="10" max="200" step="0.5" oninput="App.refreshLabelPreview()"/>
+              <label>Gap mm:</label>
+              <input type="number" id="lbl-gap" value="2" min="0" max="10" step="0.5" oninput="App.refreshLabelPreview()"/>
+            </div>
+            <div class="pane-left-inner">
+              <table class="item-list" id="label-table">
+                <thead><tr><th>Type</th><th>Details</th></tr></thead>
+                <tbody id="label-tbody"></tbody>
+              </table>
+            </div>
+            <div class="btn-bar">
+              <button onclick="App.addLabelEl('text')">+ Text</button>
+              <button onclick="App.addLabelEl('barcode')">+ Barcode</button>
+              <button onclick="App.addLabelEl('qrcode')">+ QR</button>
+              <button onclick="App.editLabelEl()">Edit</button>
+              <button class="danger" onclick="App.deleteLabelEl()">Delete</button>
+            </div>
+            <div class="btn-bar">
+              <button onclick="App.moveLabelEl(-1)">Move Up</button>
+              <button onclick="App.moveLabelEl(1)">Move Down</button>
+              <button onclick="App.importBin('tspl')">Import .bin</button>
+              <button onclick="App.exportBin('tspl')">Export .bin</button>
+              <input type="file" id="import-tspl-file" accept=".bin" style="display:none" onchange="App.onImportFile('tspl')"/>
+            </div>
+            <div class="btn-bar">
+              <button class="primary" style="flex:1" onclick="App.print('tspl')">🖨 Print Label</button>
+            </div>
+          </div>
+          <div class="pane-right">
+            <div class="preview-header">
+              <span>Label Preview</span>
+              <span id="label-preview-info"></span>
+            </div>
+            <div class="preview-area" id="label-preview-area">
+              <span class="preview-placeholder">Add elements to see preview</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PDF Tab ──────────────────────────────── -->
+      <div class="tab-pane" id="tab-pdf">
+        <div class="pane-split">
+          <div class="pane-left">
+            <div class="pane-left-inner">
+              <div class="pdf-controls">
+                <div class="drop-zone" id="pdf-drop-zone" onclick="document.getElementById('pdf-file-input').click()">
+                  Click to select PDF<br/>
+                  <small id="pdf-filename" style="color:var(--accent)"></small>
+                </div>
+                <input type="file" id="pdf-file-input" accept=".pdf" style="display:none" onchange="App.onPdfSelected()"/>
+
+                <div class="field-row">
+                  <label>Page:</label>
+                  <div class="spin-group">
+                    <button onclick="App.spin('pdf-page',-1,0)">−</button>
+                    <input type="number" id="pdf-page" value="0" min="0"/>
+                    <button onclick="App.spin('pdf-page',1)">+</button>
+                  </div>
+                  <span id="pdf-total-pages" style="font-size:11px;color:var(--text-dim);white-space:nowrap"></span>
+                </div>
+
+                <div class="field-row" style="margin-top:4px">
+                  <label style="width:unset;flex:1;font-size:12px;color:var(--text-dim)">
+                    Uses print width from Print Settings sidebar
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="btn-bar">
+              <button class="primary" style="flex:1" onclick="App.print('pdf')">🖨 Print PDF Page</button>
+            </div>
+          </div>
+          <div class="pane-right">
+            <div class="preview-header">
+              <span>PDF Preview</span>
+              <span id="pdf-preview-info"></span>
+            </div>
+            <div class="preview-area" id="pdf-preview-area">
+              <span class="preview-placeholder">Select a PDF file</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div><!-- #body -->
+</div><!-- #app -->
+
+<!-- ── Toast ────────────────────────────────── -->
+<div id="toast"></div>
+
+<!-- ── Modals ───────────────────────────────── -->
+
+<!-- Receipt Text Modal -->
+<div class="modal-overlay" id="modal-receipt-text">
+  <div class="modal">
+    <h3 id="modal-receipt-text-title">Add Text Item</h3>
+    <div class="form-row">
+      <label>Text:</label>
+      <textarea id="rt-text" rows="2"></textarea>
+    </div>
+    <div class="form-row">
+      <label>Right Text:</label>
+      <input type="text" id="rt-right-text" placeholder="(optional, right-aligned)"/>
+    </div>
+    <div class="form-row">
+      <label>Align:</label>
+      <select id="rt-align">
+        <option value="left">Left</option>
+        <option value="center">Center</option>
+        <option value="right">Right</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Style:</label>
+      <label class="checkbox-row" style="flex:1;gap:8px">
+        <input type="checkbox" id="rt-bold"/> Bold
+        <input type="checkbox" id="rt-dw"/> Double Width
+        <input type="checkbox" id="rt-dh"/> Double Height
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-receipt-text')">Cancel</button>
+      <button class="primary" onclick="App.saveReceiptText()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt Feed Modal -->
+<div class="modal-overlay" id="modal-receipt-feed">
+  <div class="modal">
+    <h3>Add Feed</h3>
+    <div class="form-row">
+      <label>Lines:</label>
+      <input type="number" id="rf-lines" value="3" min="1" max="20"/>
+    </div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-receipt-feed')">Cancel</button>
+      <button class="primary" onclick="App.saveReceiptFeed()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Label Text Modal -->
+<div class="modal-overlay" id="modal-label-text">
+  <div class="modal">
+    <h3 id="modal-label-text-title">Add Label Text</h3>
+    <div class="form-row"><label>Text:</label><input type="text" id="lt-text"/></div>
+    <div class="form-row"><label>X (dots):</label><input type="number" id="lt-x" value="40" min="0"/></div>
+    <div class="form-row"><label>Y (dots):</label><input type="number" id="lt-y" value="20" min="0"/></div>
+    <div class="form-row">
+      <label>Font:</label>
+      <select id="lt-font">
+        <option value="1">1 — Small</option>
+        <option value="2">2 — Small2</option>
+        <option value="3" selected>3 — Medium</option>
+        <option value="4">4 — Large</option>
+        <option value="5">5 — Extra Large</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Rotation:</label>
+      <select id="lt-rot">
+        <option value="0">0°</option>
+        <option value="90">90°</option>
+        <option value="180">180°</option>
+        <option value="270">270°</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Mul X:</label><input type="number" id="lt-mx" value="1" min="1" max="8"/></div>
+    <div class="form-row"><label>Mul Y:</label><input type="number" id="lt-my" value="1" min="1" max="8"/></div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-label-text')">Cancel</button>
+      <button class="primary" onclick="App.saveLabelText()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Label Barcode Modal -->
+<div class="modal-overlay" id="modal-label-barcode">
+  <div class="modal">
+    <h3 id="modal-label-barcode-title">Add Barcode</h3>
+    <div class="form-row"><label>Content:</label><input type="text" id="lb-content" value="12345678"/></div>
+    <div class="form-row"><label>X (dots):</label><input type="number" id="lb-x" value="40"/></div>
+    <div class="form-row"><label>Y (dots):</label><input type="number" id="lb-y" value="80"/></div>
+    <div class="form-row">
+      <label>Type:</label>
+      <select id="lb-type">
+        <option value="128" selected>Code 128</option>
+        <option value="39">Code 39</option>
+        <option value="EAN13">EAN-13</option>
+        <option value="EAN8">EAN-8</option>
+        <option value="UPCA">UPC-A</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Height:</label><input type="number" id="lb-h" value="60"/></div>
+    <div class="form-row"><label>Readable:</label>
+      <select id="lb-readable">
+        <option value="1">Yes</option>
+        <option value="0">No</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-label-barcode')">Cancel</button>
+      <button class="primary" onclick="App.saveLabelBarcode()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Label QR Modal -->
+<div class="modal-overlay" id="modal-label-qr">
+  <div class="modal">
+    <h3 id="modal-label-qr-title">Add QR Code</h3>
+    <div class="form-row"><label>Content:</label><textarea id="lq-content" rows="2">https://example.com</textarea></div>
+    <div class="form-row"><label>X (dots):</label><input type="number" id="lq-x" value="40"/></div>
+    <div class="form-row"><label>Y (dots):</label><input type="number" id="lq-y" value="40"/></div>
+    <div class="form-row"><label>Cell Width:</label><input type="number" id="lq-cell" value="4" min="1" max="10"/></div>
+    <div class="form-row">
+      <label>ECC Level:</label>
+      <select id="lq-ecc">
+        <option value="L">L — Low</option>
+        <option value="M" selected>M — Medium</option>
+        <option value="Q">Q — High</option>
+        <option value="H">H — Max</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button onclick="App.closeModal('modal-label-qr')">Cancel</button>
+      <button class="primary" onclick="App.saveLabelQr()">OK</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
